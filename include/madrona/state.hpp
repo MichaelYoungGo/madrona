@@ -183,6 +183,13 @@ public:
     inline void iterateQuery(MADRONA_MW_COND(uint32_t world_id,)
                                 const Query<ComponentTs...> &query, Fn &&fn);
 
+    // Rows of one archetype run concurrently. The callback may only write
+    // the components of the entity it was invoked for.
+    template <typename... ComponentTs, typename Fn>
+    inline void iterateQueryParallel(MADRONA_MW_COND(uint32_t world_id,)
+                                     const Query<ComponentTs...> &query,
+                                     Fn &&fn);
+
     Transaction makeTransaction();
     void commitTransaction(Transaction &&txn);
 
@@ -406,6 +413,11 @@ private:
     static uint32_t next_archetype_id_;
     static uint32_t next_bundle_id_;
 };
+
+#ifndef MADRONA_GPU_MODE
+// Persistent pool. One caller at a time; returns after every row has finished.
+void cpuParallelFor(int num_rows, void *user, void (*fn)(void *user, int row));
+#endif
 
 }
 

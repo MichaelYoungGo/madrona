@@ -5,6 +5,12 @@
 
 #include "worker_init.hpp"
 
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
+#include <vector>
+
 namespace madrona {
 
 TaskGraphBuilder::TaskGraphBuilder(uint32_t taskgraph_id,
@@ -231,6 +237,126 @@ TaskGraphNodeID CompactArchetypeNodeBase::addToGraph(
     (void)state_mgr;
     return builder.addDefaultNode<CompactArchetypeNodeBase>(dependencies, 
         archetype_id);
+}
+
+namespace {
+
+constexpr int kCpuParallelChunk = 4;
+
+struct CpuParallelPool {
+    std::mutex gate;
+    std::mutex mu;
+    std::condition_variable cv_work;
+    std::condition_variable cv_done;
+    std::vector<std::thread> threads;
+    std::atomic<int> next { 0 };
+    void *user = nullptr;
+    void (*fn)(void *, int) = nullptr;
+    int num_rows = 0;
+    int nthreads = 0;
+    int epoch = 0;
+    int finished = 0;
+    bool shutdown = false;
+
+    CpuParallelPool()
+    {
+        unsigned hc = std::thread::hardware_concurrency();
+        nthreads = hc == 0 ? 1 : static_cast<int>(hc);
+        threads.reserve(static_cast<size_t>(nthreads));
+        for (int i = 0; i < nthreads; i++) {
+            threads.emplace_back([this] { workerLoop(); });
+        }
+    }
+
+    ~CpuParallelPool()
+    {
+        {
+            std::lock_guard<std::mutex> lock(mu);
+            shutdown = true;
+            cv_work.notify_all();
+        }
+        for (std::thread &t : threads) {
+            if (t.joinable()) {
+                t.join();
+            }
+        }
+    }
+
+    void workerLoop()
+    {
+        int seen_epoch = 0;
+        for (;;) {
+            void (*job_fn)(void *, int);
+            void *job_user;
+            int job_rows;
+            {
+                std::unique_lock<std::mutex> lock(mu);
+                cv_work.wait(lock, [&] {
+                    return shutdown || epoch != seen_epoch;
+                });
+                if (shutdown) {
+                    return;
+                }
+                seen_epoch = epoch;
+                job_fn = fn;
+                job_user = user;
+                job_rows = num_rows;
+            }
+
+            for (;;) {
+                int begin = next.fetch_add(kCpuParallelChunk,
+                                            std::memory_order_relaxed);
+                if (begin >= job_rows) {
+                    break;
+                }
+                int end = begin + kCpuParallelChunk;
+                if (end > job_rows) {
+                    end = job_rows;
+                }
+                for (int row = begin; row < end; row++) {
+                    job_fn(job_user, row);
+                }
+            }
+
+            {
+                std::lock_guard<std::mutex> lock(mu);
+                finished++;
+                if (finished == nthreads) {
+                    cv_done.notify_one();
+                }
+            }
+        }
+    }
+};
+
+CpuParallelPool & cpuParallelPool()
+{
+    static CpuParallelPool pool;
+    return pool;
+}
+
+}
+
+void cpuParallelFor(int num_rows, void *user, void (*fn)(void *user, int row))
+{
+    if (num_rows <= 0) {
+        return;
+    }
+
+    CpuParallelPool &pool = cpuParallelPool();
+    std::lock_guard<std::mutex> gate(pool.gate);
+
+    std::unique_lock<std::mutex> lock(pool.mu);
+    pool.user = user;
+    pool.fn = fn;
+    pool.num_rows = num_rows;
+    pool.next.store(0, std::memory_order_relaxed);
+    pool.finished = 0;
+    pool.epoch++;
+    pool.cv_work.notify_all();
+    pool.cv_done.wait(lock, [&] {
+        return pool.finished == pool.nthreads;
+    });
 }
 
 }

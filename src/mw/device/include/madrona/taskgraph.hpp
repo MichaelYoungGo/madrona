@@ -227,6 +227,10 @@ template <typename ContextT, auto Fn, typename ...ComponentTs>
 using ParallelForNode =
     CustomParallelForNode<ContextT, Fn, 1, 1, ComponentTs...>;
 
+template <typename ContextT, auto Fn, typename ...ComponentTs>
+using CpuParallelForNode =
+    ParallelForNode<ContextT, Fn, ComponentTs...>;
+
 struct ClearTmpNodeBase : NodeBase {
     ClearTmpNodeBase(uint32_t archetype_id);
 

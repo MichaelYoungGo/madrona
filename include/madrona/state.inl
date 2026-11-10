@@ -11,6 +11,7 @@
 
 #include <array>
 #include <mutex>
+#include <tuple>
 
 namespace madrona {
 
@@ -488,6 +489,35 @@ void StateManager::iterateQuery(MADRONA_MW_COND(uint32_t world_id,)
             fn(ptrs[i] ...);
         }
     });
+}
+
+template <typename... ComponentTs, typename Fn>
+void StateManager::iterateQueryParallel(MADRONA_MW_COND(uint32_t world_id,)
+                                        const Query<ComponentTs...> &query,
+                                        Fn &&fn)
+{
+#ifndef MADRONA_GPU_MODE
+    iterateArchetypes(MADRONA_MW_COND(world_id,) query,
+            [&fn](int num_rows, Entity *entities, auto ...ptrs) {
+        struct RowCtx {
+            Entity *entities;
+            std::remove_reference_t<Fn> *fn;
+            std::tuple<decltype(ptrs)...> cols;
+        };
+        RowCtx row_ctx { entities, &fn, { ptrs... } };
+        cpuParallelFor(num_rows, &row_ctx, [](void *user, int row) {
+            auto *row_ctx = static_cast<RowCtx *>(user);
+            if (row_ctx->entities[row] == Entity::none()) {
+                return;
+            }
+            std::apply([&](auto *...cols) {
+                (*row_ctx->fn)(cols[row] ...);
+            }, row_ctx->cols);
+        });
+    });
+#else
+    iterateQuery(MADRONA_MW_COND(world_id,) query, std::forward<Fn>(fn));
+#endif
 }
 
 template <typename ArchetypeT, typename... Args>

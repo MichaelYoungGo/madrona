@@ -141,6 +141,26 @@ private:
     Query<ComponentTs...> query_;
 };
 
+// CPU-only row parallelism. Same registration shape as ParallelForNode.
+// Each entity invocation may run at the same time as the others; it may
+// write only that entity's components. GPU keeps the ordinary ParallelForNode
+// execution. run() returns only after every row has finished.
+template <typename ContextT, auto Fn, typename ...ComponentTs>
+class CpuParallelForNode : public NodeBase {
+public:
+    CpuParallelForNode(Query<ComponentTs...> &&query);
+
+    inline void run(Context &ctx_base, TaskGraph &taskgraph);
+
+    static TaskGraphNodeID addToGraph(
+        StateManager &state_mgr,
+        TaskGraphBuilder &builder,
+        Span<const TaskGraphNodeID> dependencies);
+
+private:
+    Query<ComponentTs...> query_;
+};
+
 // This node resets the temporary bump allocator accessible through
 // Context::tmpAlloc
 class ResetTmpAllocNode : public NodeBase {

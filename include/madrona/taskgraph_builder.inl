@@ -1,5 +1,10 @@
 #pragma once
 
+#ifndef MADRONA_GPU_MODE
+#include <chrono>
+#include <cstdio>
+#endif
+
 namespace madrona {
 
 template <typename NodeT>
@@ -73,7 +78,17 @@ void ParallelForNode<ContextT, Fn, ComponentTs...>::run(
     Context &ctx_base, TaskGraph &taskgraph)
 {
     ContextT &ctx = static_cast<ContextT &>(ctx_base);
-    taskgraph.iterateQuery(ctx, query_, Fn); 
+#ifndef MADRONA_GPU_MODE
+    const auto t0 = std::chrono::steady_clock::now();
+    taskgraph.iterateQuery(ctx, query_, Fn);
+    const auto t1 = std::chrono::steady_clock::now();
+    const auto us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+    const double sec = static_cast<double>(us) / 1e6;
+    std::printf("[task_profile] %s %.6f s\n", __PRETTY_FUNCTION__, sec);
+    std::fflush(stdout);
+#else
+    taskgraph.iterateQuery(ctx, query_, Fn);
+#endif
 }
 
 template <typename ContextT, auto Fn, typename ...ComponentTs>
@@ -84,6 +99,37 @@ ParallelForNode<ContextT, Fn, ComponentTs...>::addToGraph(
     Span<const TaskGraphNodeID> dependencies)
 {
     using NodeT = ParallelForNode<ContextT, Fn, ComponentTs...>;
+
+    auto query = state_mgr.query<ComponentTs...>();
+    return builder.addDefaultNode<NodeT>(dependencies, std::move(query));
+}
+
+template <typename ContextT, auto Fn, typename ...ComponentTs>
+CpuParallelForNode<ContextT, Fn, ComponentTs...>::CpuParallelForNode(
+        Query<ComponentTs...> &&query)
+    : query_(std::move(query))
+{}
+
+template <typename ContextT, auto Fn, typename ...ComponentTs>
+void CpuParallelForNode<ContextT, Fn, ComponentTs...>::run(
+    Context &ctx_base, TaskGraph &taskgraph)
+{
+    ContextT &ctx = static_cast<ContextT &>(ctx_base);
+#ifndef MADRONA_GPU_MODE
+    taskgraph.iterateQueryParallel(ctx, query_, Fn);
+#else
+    taskgraph.iterateQuery(ctx, query_, Fn);
+#endif
+}
+
+template <typename ContextT, auto Fn, typename ...ComponentTs>
+TaskGraphNodeID
+CpuParallelForNode<ContextT, Fn, ComponentTs...>::addToGraph(
+    StateManager &state_mgr,
+    TaskGraphBuilder &builder,
+    Span<const TaskGraphNodeID> dependencies)
+{
+    using NodeT = CpuParallelForNode<ContextT, Fn, ComponentTs...>;
 
     auto query = state_mgr.query<ComponentTs...>();
     return builder.addDefaultNode<NodeT>(dependencies, std::move(query));

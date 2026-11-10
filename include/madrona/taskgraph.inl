@@ -20,6 +20,17 @@ void TaskGraph::iterateQuery(ContextT &ctx,
         });
 }
 
+template <typename ContextT, typename Fn, typename ...ComponentTs>
+void TaskGraph::iterateQueryParallel(ContextT &ctx,
+                                     Query<ComponentTs...> &query,
+                                     Fn &&fn)
+{
+    state_mgr_->iterateQueryParallel(MADRONA_MW_COND(cur_world_id_,) query,
+        [&](auto &...refs) {
+            fn(ctx, refs...);
+        });
+}
+
 StateManager & TaskGraph::stateManager() const
 {
   return *state_mgr_;

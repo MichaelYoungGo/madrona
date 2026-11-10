@@ -51,6 +51,11 @@ public:
                       Query<ComponentTs...> &query,
                       Fn &&fn);
 
+    template <typename ContextT, typename Fn, typename ...ComponentTs>
+    void iterateQueryParallel(ContextT &ctx,
+                              Query<ComponentTs...> &query,
+                              Fn &&fn);
+
     inline StateManager & stateManager() const;
 
 private:
