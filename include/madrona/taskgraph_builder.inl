@@ -79,13 +79,13 @@ void ParallelForNode<ContextT, Fn, ComponentTs...>::run(
 {
     ContextT &ctx = static_cast<ContextT &>(ctx_base);
 #ifndef MADRONA_GPU_MODE
-    // const auto t0 = std::chrono::steady_clock::now();
+    const auto t0 = std::chrono::steady_clock::now();
     taskgraph.iterateQuery(ctx, query_, Fn);
-    // const auto t1 = std::chrono::steady_clock::now();
-    // const auto us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
-    // const double sec = static_cast<double>(us) / 1e6;
-    // std::printf("[task_profile] %s %.6f s\n", __PRETTY_FUNCTION__, sec);
-    // std::fflush(stdout);
+    const auto t1 = std::chrono::steady_clock::now();
+    const auto us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+    const double sec = static_cast<double>(us) / 1e6;
+    std::printf("[task_profile] %s %.6f s\n", __PRETTY_FUNCTION__, sec);
+    std::fflush(stdout);
 #else
     taskgraph.iterateQuery(ctx, query_, Fn);
 #endif
@@ -116,7 +116,13 @@ void CpuParallelForNode<ContextT, Fn, ComponentTs...>::run(
 {
     ContextT &ctx = static_cast<ContextT &>(ctx_base);
 #ifndef MADRONA_GPU_MODE
+    const auto t0 = std::chrono::steady_clock::now();
     taskgraph.iterateQueryParallel(ctx, query_, Fn);
+    const auto t1 = std::chrono::steady_clock::now();
+    const auto us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+    const double sec = static_cast<double>(us) / 1e6;
+    std::printf("[task_profile] %s %.6f s\n", __PRETTY_FUNCTION__, sec);
+    std::fflush(stdout);
 #else
     taskgraph.iterateQuery(ctx, query_, Fn);
 #endif
